@@ -1,11 +1,11 @@
 local _, addonTable = ...
 
 --[[
-  Controller actions for Baganator windows. A and B are handled by Blizzard's
+  Controller actions for BetterBags windows. A and B are handled by Blizzard's
   SmartNavigation (click / close handler). X and Y are bound with
   SetOverrideBindingClick on UIParent at the same priority as Blizzard's
   gamepad binding stack, so Blizzard's rebinds replace them; the proxy button
-  ignores presses unless a Baganator window is the focused frame.
+  ignores presses unless a BetterBags window is the focused frame.
 ]]
 
 addonTable.Actions = {}
@@ -74,7 +74,8 @@ local function IsContainerItemButton(button)
   return button.buttonContext == Constants.ITEM_BUTTON_CONTEXT and type(button.GetBagID) == "function"
 end
 
--- Live buttons carry Blizzard's hasItem flag; cached (other character) buttons only have BGR.
+-- Live buttons carry Blizzard's hasItem flag; cached (other character) buttons
+-- only have the button grid representation.
 local function HasItem(button)
   if button.hasItem == true then
     return true
@@ -235,66 +236,14 @@ local function SplitStack(button)
   ShowUIPanel(StackSplitFrame)
 end
 
-local function TriggerBaganator(eventName)
-  if Baganator and Baganator.CallbackRegistry then
-    Baganator.CallbackRegistry:TriggerEvent(eventName)
-  end
-end
-
--- Sorting lives on the view (backpack) or on the current tab (bank).
-local function GetSorter(frame)
-  if type(frame.CombineStacksAndSort) == "function" then
-    return frame
-  end
-  local tab = frame.currentTab
-  if tab and type(tab.CombineStacksAndSort) == "function" then
-    return tab
-  end
-  return nil
-end
-
 local function PopulateMoreActionsMenu(frame, button, rootDescription)
-  local info = addonTable.Frames.GetInfo(frame)
-  rootDescription:SetTag("MENU_BAGANATOR_CONTROLLER_MORE_ACTIONS")
+  rootDescription:SetTag("MENU_BETTERBAGS_CONTROLLER_MORE_ACTIONS")
 
   if button and CanSplitStack(button) then
     rootDescription:CreateButton(L.Get("SPLIT_STACK", "CONTEXT_ACTION_LABEL_SPLIT_ITEM_STACK"), function()
       SplitStack(button)
     end)
-    rootDescription:CreateDivider()
   end
-
-  local sorter = GetSorter(frame)
-  if sorter then
-    rootDescription:CreateButton(L.Get("SORT", "BAG_CLEANUP_BAGS", "BAGANATOR_L_SORT"), function()
-      sorter:CombineStacksAndSort(false)
-    end)
-  end
-
-  if info.kind == Kind.Backpack then
-    if type(frame.ToggleBagSlots) == "function" then
-      rootDescription:CreateButton(L.Get("BAG_SLOTS", "BAGANATOR_L_BAG_SLOTS"), function()
-        frame:ToggleBagSlots()
-        addonTable.Frames.RequestRefresh()
-      end)
-    end
-    if type(frame.ToggleBank) == "function" then
-      rootDescription:CreateButton(L.Get("BANK", "BAGANATOR_L_BANK", "BANK"), function()
-        frame:ToggleBank()
-      end)
-    end
-    rootDescription:CreateButton(L.Get("ALL_CHARACTERS", "BAGANATOR_L_ALL_CHARACTERS"), function()
-      TriggerBaganator("CharacterSelectToggle")
-    end)
-    rootDescription:CreateButton(L.Get("CURRENCIES", "BAGANATOR_L_CURRENCIES"), function()
-      TriggerBaganator("CurrencyPanelToggle")
-    end)
-  end
-
-  rootDescription:CreateDivider()
-  rootDescription:CreateButton(L.Get("CUSTOMISE", "BAGANATOR_L_CUSTOMISE_BAGANATOR"), function()
-    TriggerBaganator("ShowCustomise")
-  end)
 end
 
 local function OpenMoreActions(frame)
@@ -330,8 +279,10 @@ function Actions.CloseHandler(frame)
     return true
   end
   local info = addonTable.Frames.GetInfo(frame)
-  if info and info.kind == Kind.Backpack and Baganator and Baganator.CallbackRegistry then
-    Baganator.CallbackRegistry:TriggerEvent("BagHide")
+  if info and info.kind == Kind.Backpack and type(BetterBags_ToggleBags) == "function" then
+    -- Let BetterBags close its own windows; B closes all bags, matching the
+    -- keybind. BetterBags exposes no per-window close to companions.
+    BetterBags_ToggleBags()
   else
     frame:Hide()
   end

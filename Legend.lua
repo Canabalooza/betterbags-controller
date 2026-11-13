@@ -29,21 +29,21 @@ end
 
 local function BuildFooter(frame)
   local Actions = addonTable.Actions
-  local footer = GamepadSharedUtility.CreatePromptedBindingFooter(frame, "BaganatorControllerFooter")
+  local footer = GamepadSharedUtility.CreatePromptedBindingFooter(frame, "BetterBagsControllerFooter")
 
-  AddPrompt(footer, GAMEPAD_FACE_BOTTOM, "BaganatorControllerSelect",
+  AddPrompt(footer, GAMEPAD_FACE_BOTTOM, "BetterBagsControllerSelect",
     function() return Actions.GetSelectLabel(frame) end,
     function() return Actions.GetSelectLabel(frame) ~= nil end)
 
-  AddPrompt(footer, GAMEPAD_FACE_LEFT, "BaganatorControllerContext",
+  AddPrompt(footer, GAMEPAD_FACE_LEFT, "BetterBagsControllerContext",
     function() return Actions.GetContextLabel(frame) end,
     function() return Actions.GetContextLabel(frame) ~= nil end)
 
-  AddPrompt(footer, GAMEPAD_FACE_TOP, "BaganatorControllerMore",
+  AddPrompt(footer, GAMEPAD_FACE_TOP, "BetterBagsControllerMore",
     L.Get("MORE_ACTIONS", "CONTEXT_ACTION_LABEL_MORE_ACTIONS"),
     function() return Actions.CanOpenMoreActions(frame) end)
 
-  AddPrompt(footer, GAMEPAD_FACE_RIGHT, "BaganatorControllerBack",
+  AddPrompt(footer, GAMEPAD_FACE_RIGHT, "BetterBagsControllerBack",
     function()
       if CursorHasItem() then
         return L.Get("BACK", "FRAME_ACTION_BACK")

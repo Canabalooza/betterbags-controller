@@ -1,10 +1,11 @@
 local _, addonTable = ...
 
 --[[
-  Discovers Baganator's windows through its skin API (every "ButtonFrame"
-  region) and mirrors their visibility into GamepadMode.FrameControlsManager.
-  Registration gives D-pad navigation, A/B, LT/RT paging and the focus glow
-  (Baganator's windows inherit ButtonFrameTemplate, which carries Blizzard's
+  Discovers BetterBags' windows by their global frame names (the classic UI
+  creates BetterBagsBagBackpack/Bank, the Next UI BetterBagsNext*) and mirrors
+  their visibility into GamepadMode.FrameControlsManager. Registration gives
+  D-pad navigation, A/B, LT/RT paging and the focus glow (BetterBags windows
+  are built on ButtonFrameTemplate, which carries Blizzard's
   FocusFramesInterfaceMixin).
 ]]
 
@@ -22,18 +23,6 @@ local refreshQueued = false
 ----------------------------------------------------------------------------
 -- Lookup
 ----------------------------------------------------------------------------
-
-local function GetKind(details)
-  if type(details.tags) == "table" then
-    for _, tag in ipairs(details.tags) do
-      local kind = Constants.KIND_BY_SKIN_TAG[tag]
-      if kind then
-        return kind
-      end
-    end
-  end
-  return Constants.Kind.Panel
-end
 
 function Frames.GetInfo(frame)
   return infoByFrame[frame]
@@ -64,7 +53,10 @@ end
 ----------------------------------------------------------------------------
 
 local function FindFirstItemButton(frame)
-  local root = frame.Container or frame
+  local root = frame.Container
+  if type(root) ~= "table" then
+    root = frame
+  end
   local best, bestLeft, bestTop
 
   local function Visit(region, depth)
@@ -108,9 +100,10 @@ local function ApplyMarkers(info)
   if info.markersApplied then
     return
   end
-  -- The search box needs a keyboard; keep the cursor out of it.
-  if info.frame.SearchWidget then
-    SmartNavigation_MarkFrameIgnored(info.frame.SearchWidget)
+  -- Search boxes need a keyboard; keep the cursor out of them.
+  local search = info.frame.searchBox or info.frame.SearchWidget or info.frame.SearchBox
+  if type(search) == "table" then
+    SmartNavigation_MarkFrameIgnored(search)
   end
   info.markersApplied = true
 end
@@ -193,15 +186,30 @@ local function Setup(frame, kind)
   end
 end
 
-local function OnBaganatorFrameAdded(details)
-  if type(details) ~= "table" or details.regionType ~= "ButtonFrame" then
+----------------------------------------------------------------------------
+-- Resolving BetterBags windows by name
+----------------------------------------------------------------------------
+
+local pendingNames = {}
+
+function Frames.ResolvePending()
+  for name, kind in pairs(pendingNames) do
+    local frame = _G[name]
+    if type(frame) == "table" and type(frame.HookScript) == "function" then
+      pendingNames[name] = nil
+      Setup(frame, kind)
+    end
+  end
+end
+
+local function RetryResolution()
+  if not Core.IsInitialized() then
     return
   end
-  local frame = details.region
-  if type(frame) ~= "table" or type(frame.HookScript) ~= "function" then
-    return
+  Frames.ResolvePending()
+  if next(pendingNames) ~= nil then
+    C_Timer.After(Constants.RESOLVE_RETRY_SECONDS, RetryResolution)
   end
-  Setup(frame, GetKind(details))
 end
 
 ----------------------------------------------------------------------------
@@ -211,6 +219,7 @@ end
 -- Brings the focus manager in line with what is visible; used at login, after
 -- combat and when the Gamepad UI is switched on.
 function Frames.Sync()
+  Frames.ResolvePending()
   if not Core.CanTouchGamepadUI() then
     return
   end
@@ -229,8 +238,8 @@ function Frames.Sync()
   end
 end
 
--- Baganator re-parents item buttons on every layout pass, which SmartNavigation
--- does not notice on its own.
+-- BetterBags re-parents item buttons on every layout pass, which
+-- SmartNavigation does not notice on its own.
 local function RefreshNavigation()
   if not Core.CanTouchGamepadUI() then
     return
@@ -264,21 +273,21 @@ end
 -- Setup
 ----------------------------------------------------------------------------
 
-function Frames.Initialize()
-  local skins = Baganator.API.Skins
-  if type(skins.GetAllFrames) == "function" then
-    local allFrames = skins.GetAllFrames()
-    if type(allFrames) == "table" then
-      for _, details in ipairs(allFrames) do
-        OnBaganatorFrameAdded(details)
-      end
-    end
+local function RefreshTick()
+  if not Core.IsInitialized() then
+    return
   end
-  if type(skins.RegisterListener) == "function" then
-    skins.RegisterListener(OnBaganatorFrameAdded)
+  if Core.IsGamepadUIEnabled() then
+    Frames.RequestRefresh()
   end
+  C_Timer.After(Constants.REFRESH_SECONDS, RefreshTick)
+end
 
-  if Baganator.CallbackRegistry and type(Baganator.CallbackRegistry.RegisterCallback) == "function" then
-    Baganator.CallbackRegistry:RegisterCallback("ViewComplete", Frames.RequestRefresh, Frames)
+function Frames.Initialize()
+  for name, kind in pairs(Constants.WINDOW_NAMES) do
+    pendingNames[name] = kind
   end
+  Frames.ResolvePending()
+  C_Timer.After(Constants.RESOLVE_RETRY_SECONDS, RetryResolution)
+  C_Timer.After(Constants.REFRESH_SECONDS, RefreshTick)
 end

@@ -1,7 +1,7 @@
 local _, addonTable = ...
 
 --[[
-  Registers Baganator's windows with the Forever client's gamepad focus
+  Registers BetterBags' windows with the Forever client's gamepad focus
   manager (GamepadMode.FrameControlsManager) and SmartNavigation, using only
   the entry points Blizzard exposes to addon code through SecureHelper: the
   wrapped FrameShown/FrameHidden/SetTargetButtonForFrame/RefreshButtonGroups
@@ -159,7 +159,8 @@ local function Initialize()
   if not Core.HasGamepadAPI() then
     return
   end
-  if type(Baganator) ~= "table" or type(Baganator.API) ~= "table" or type(Baganator.API.Skins) ~= "table" then
+  -- BetterBags defines this global from its core/init.lua when it loads.
+  if type(BetterBags_ToggleBags) ~= "function" then
     return
   end
   initialized = true

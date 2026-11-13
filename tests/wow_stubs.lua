@@ -1,17 +1,20 @@
--- Minimal stand-in for the parts of the WoW Forever client, Blizzard's gamepad
--- UI and Baganator that Baganator_Controller touches. Only used by tests.
+-- Minimal World of Warcraft API stubs for BetterBags Controller tests.
+-- Loaded via dofile from tests/run_tests.lua; frames and globals are real Lua
+-- tables that record calls in Stubs.log, and timers/RunNextFrame are run
+-- manually by the tests.
 
-local Stubs = {}
-_G.Stubs = Stubs
+Stubs = {}
 
 Stubs.log = {}
-function Stubs.Log(...)
-  local parts = {}
-  for i = 1, select("#", ...) do
-    parts[i] = tostring(select(i, ...))
-  end
-  table.insert(Stubs.log, table.concat(parts, " "))
+
+function Stubs.Log(message)
+  table.insert(Stubs.log, tostring(message))
 end
+
+function Stubs.ResetLog()
+  Stubs.log = {}
+end
+
 function Stubs.LogContains(needle)
   for _, line in ipairs(Stubs.log) do
     if line:find(needle, 1, true) then
@@ -20,456 +23,651 @@ function Stubs.LogContains(needle)
   end
   return false
 end
-function Stubs.ClearLog()
-  Stubs.log = {}
-end
 
-Stubs.combat = false
-Stubs.gamepadUI = true
-Stubs.cursorHasItem = false
+----------------------------------------------------------------------------
+-- Timers and frames
+----------------------------------------------------------------------------
+
+Stubs.pendingTimers = {}
 Stubs.nextFrameQueue = {}
-Stubs.timers = {}
-Stubs.eventFrames = {}
 
-function Stubs.RunNextFrames()
-  local queue = Stubs.nextFrameQueue
-  Stubs.nextFrameQueue = {}
-  for _, fn in ipairs(queue) do
-    fn()
-  end
+C_Timer = {}
+
+function C_Timer.After(delay, callback)
+  table.insert(Stubs.pendingTimers, { delay = delay, callback = callback })
 end
 
 function Stubs.RunTimers()
-  local timers = Stubs.timers
-  Stubs.timers = {}
-  for _, fn in ipairs(timers) do
-    fn()
+  local due = Stubs.pendingTimers
+  Stubs.pendingTimers = {}
+  for _, timer in ipairs(due) do
+    timer.callback()
   end
 end
 
-function Stubs.FireEvent(event, ...)
-  for frame in pairs(Stubs.eventFrames) do
-    if frame.registeredEvents[event] and frame.scripts.OnEvent then
+function RunNextFrame(callback)
+  table.insert(Stubs.nextFrameQueue, callback)
+end
+
+function Stubs.RunNextFrames()
+  local passes = 0
+  while #Stubs.nextFrameQueue > 0 and passes < 100 do
+    passes = passes + 1
+    local queue = Stubs.nextFrameQueue
+    Stubs.nextFrameQueue = {}
+    for _, callback in ipairs(queue) do
+      callback()
+    end
+  end
+end
+
+local registeredEvents = {}
+
+local function RegisterEvent(self, event)
+  registeredEvents[event] = registeredEvents[event] or {}
+  registeredEvents[event][self] = self
+end
+
+local function MakeFrame(name, parent, kind)
+  local f = {}
+  f.name = name or nil
+  f.kind = kind or "Frame"
+  f.parent = parent or nil
+  f.shown = true
+  f.visible = true
+  f.alpha = 1
+  f.scripts = {}
+  f.hooks = { OnShow = {}, OnHide = {} }
+  f.children = {}
+  f.regions = {}
+  f.mouse = false
+
+  -- Real visibility walks the parent chain, like the client does.
+  local function AncestorsHidden(node)
+    local p = node.parent
+    while p do
+      if not p.shown then return true end
+      p = p.parent
+    end
+    return false
+  end
+
+  function f:IsShown() return f.shown end
+  function f:IsVisible() return f.shown and not AncestorsHidden(f) end
+
+  function f:SetName(value) f.name = value end
+  function f:GetName() return f.name end
+  function f:GetParent() return f.parent end
+  function f:SetParent(p) f.parent = p end
+  function f:GetChildren() return unpack(f.children) end
+  function f:GetRegions() return unpack(f.regions) end
+  function f:SetFrameStrata() end
+  function f:SetFrameLevel() end
+  function f:SetPoint() end
+  function f:SetAllPoints() end
+  function f:SetSize() end
+  function f:SetAlpha(a) f.alpha = a end
+  function f:GetAlpha() return f.alpha end
+  function f:GetEffectiveScale() return 1 end
+  function f:SetMovable() end
+  function f:EnableMouse(v) f.mouse = v end
+  function f:RegisterForClicks() end
+  function f:SetPropagateKeyboardInput() end
+  function f:SetAutoHideDelay() end
+  function f:SetOrnament() end
+  function f:Show()
+    f.shown = true
+    f.visible = true
+    for _, callback in ipairs(f.hooks.OnShow) do
+      callback(f)
+    end
+  end
+  function f:Hide()
+    f.shown = false
+    f.visible = false
+    for _, callback in ipairs(f.hooks.OnHide) do
+      callback(f)
+    end
+  end
+  function f:GetRect() return 0, 0, 0, 0 end
+  function f:SetScript(event, callback) f.scripts[event] = callback end
+  function f:GetScript(event) return f.scripts[event] end
+  function f:HookScript(event, callback)
+    table.insert(f.hooks[event], callback)
+  end
+  function f:RegisterEvent(event)
+    RegisterEvent(f, event)
+  end
+  function f:Click(buttonName)
+    Stubs.Log("Click|" .. tostring(f.name) .. "|" .. tostring(buttonName))
+    if f.scripts.OnClick then
+      f.scripts.OnClick(f, buttonName)
+    end
+  end
+
+  function f:GetLeft() return f.x or 0 end
+  function f:GetTop() return f.y or 0 end
+  function f:GetBottom() return (f.y or 0) - (f.height or 0) end
+  function f:IsObjectType(t) return f.kind == t end
+
+  if parent then
+    table.insert(parent.children, f)
+  end
+
+  if name then
+    _G[name] = f
+  end
+  return f
+end
+
+function CreateFrame(kind, name, parent)
+  return MakeFrame(name, parent, kind)
+end
+
+----------------------------------------------------------------------------
+-- Misc client functions and globals
+----------------------------------------------------------------------------
+
+Stubs.inCombat = false
+
+function InCombatLockdown() return Stubs.inCombat end
+
+C_RestrictedActions = {}
+function C_RestrictedActions.IsAddOnRestrictionActive(which)
+  return Stubs.inCombat
+end
+
+function Stubs.SetInCombat(value)
+  Stubs.inCombat = value and true or false
+end
+
+function GetBuildInfo()
+  return "1.60.1", 1, 0, 16001, 70862
+end
+
+SlashCmdList = {}
+
+function Stubs.RunSlashCommand(line)
+  local command, arg = line:match("^(%S+)%s*(.*)$")
+  for name, handler in pairs(SlashCmdList) do
+    for suffix = 1, 2 do
+      local alias = _G["SLASH_" .. name .. suffix]
+      if alias and command and alias:lower() == command:lower() then
+        return handler(arg)
+      end
+    end
+  end
+  error("no slash command matched " .. tostring(line))
+end
+
+function hooksecurefunc(object, name, callback)
+  local target, key
+  if type(object) == "string" then
+    -- hooksecurefunc("GlobalName", hook)
+    target, key, callback = _G, object, name
+  else
+    -- hooksecurefunc(table, "methodName", hook)
+    target, key = object, name
+  end
+  local original = target[key]
+  if type(original) ~= "function" then
+    Stubs.Log("hooksecurefunc: missing target " .. tostring(name))
+    return
+  end
+  target[key] = function(...)
+    local results = { original(...) }
+    callback(...)
+    return unpack(results)
+  end
+end
+
+Stubs.currentBinding = {}
+
+function SetOverrideBinding(owner, prio, key, action)
+  Stubs.Log("SetOverrideBinding|" .. key .. "|" .. tostring(action))
+  Stubs.currentBinding[key] = action
+end
+
+function SetOverrideBindingClick(owner, prio, key, buttonName, button)
+  local command = "CLICK " .. buttonName .. ":" .. button
+  Stubs.Log("SetOverrideBindingClick|" .. key .. "|" .. command)
+  Stubs.currentBinding[key] = command
+end
+
+function GetBindingAction(key, priorityOnly)
+  return Stubs.currentBinding[key]
+end
+
+function CursorHasItem() return Stubs.cursorItem end
+Stubs.cursorItem = false
+
+function ClearCursor()
+  Stubs.cursorItem = false
+  Stubs.Log("ClearCursor")
+end
+
+Stubs.repairMode = false
+
+function InRepairMode() return Stubs.repairMode end
+
+function ShowUIPanel(frame)
+  Stubs.Log("ShowUIPanel|" .. tostring(frame.name))
+  frame:Show()
+end
+
+function ItemRefTooltip()
+  Stubs.Log("ItemRefTooltip:SetHyperlink")
+end
+
+function ItemTextWindow()
+  Stubs.Log("ItemTextWindow:Show")
+end
+
+AnchorUtil = {
+  CreateAnchor = function(_, ...)
+    return { args = { ... } }
+  end,
+}
+
+PromptedBindingMixin = { VISIBILITY_TYPE = { ONLY_IF_USABLE = 2 } }
+
+function Stubs.DispatchEvent(event, ...)
+  for _, frame in pairs(registeredEvents[event] or {}) do
+    if frame.scripts and frame.scripts.OnEvent then
       frame.scripts.OnEvent(frame, event, ...)
     end
   end
 end
 
 ----------------------------------------------------------------------------
--- Frames
+-- UIParent
 ----------------------------------------------------------------------------
 
-local frameCounter = 0
-local FrameMixin = {}
-FrameMixin.__index = FrameMixin
+UIParent = MakeFrame("UIParent", nil)
+UIParent.x, UIParent.y = 0, 0
 
-function Stubs.CreateFrame(frameType, name, parent, template)
-  frameCounter = frameCounter + 1
-  local frame = setmetatable({
-    frameType = frameType or "Frame",
-    name = name,
-    parent = parent,
-    template = template,
-    children = {},
-    scripts = {},
-    hooks = {},
-    registeredEvents = {},
-    shown = true,
-    left = 100, top = 500, bottom = 200,
-    width = 100, height = 100,
-    scale = 1,
-    id = frameCounter,
-  }, FrameMixin)
-  if parent and parent.children then
-    table.insert(parent.children, frame)
-  end
-  if name then
-    _G[name] = frame
-  end
-  return frame
+function UIParent:SetScript(event, callback)
+  self.scripts[event] = callback
 end
-_G.CreateFrame = Stubs.CreateFrame
 
-function FrameMixin:GetName() return self.name end
-function FrameMixin:GetParent() return self.parent end
-function FrameMixin:SetParent(parent)
-  if self.parent and self.parent.children then
-    for i, child in ipairs(self.parent.children) do
-      if child == self then table.remove(self.parent.children, i) break end
+function UIParent:RegisterEvent(event)
+  RegisterEvent(self, event)
+end
+
+----------------------------------------------------------------------------
+-- Blizzard container state (what IsBagOpen() and item queries read)
+----------------------------------------------------------------------------
+
+Stubs.containerItemInfo = {} -- [bagID] = { [slotID] = info }
+
+local function SetContainerItem(bagID, slotID, itemID, stackCount)
+  Stubs.containerItemInfo[bagID] = Stubs.containerItemInfo[bagID] or {}
+  Stubs.containerItemInfo[bagID][slotID] = {
+    itemID = itemID or nil,
+    stackCount = stackCount or nil,
+    hasItem = itemID ~= nil,
+    quality = 1,
+    hasLoot = false,
+    isLocked = false,
+  }
+end
+
+SetContainerItem(0, 1, 5000, 3) -- backpack slot 1: a stack of 3
+SetContainerItem(0, 2, 5001, 1)
+SetContainerItem(3, 1, 6000, 1) -- bank bag
+
+C_Container = {}
+
+function C_Container.GetContainerNumSlots(bagID) return 5 end
+
+function C_Container.GetContainerItemInfo(bagID, slotID)
+  return (Stubs.containerItemInfo[bagID] or {})[slotID]
+end
+
+function C_Container.GetContainerItemLink(bagID, slotID)
+  local info = C_Container.GetContainerItemInfo(bagID, slotID)
+  if not info or not info.itemID then
+    return nil
+  end
+  return "|cff00ff00Stub Item " .. tostring(info.itemID) .. "|r"
+end
+
+function C_Container.GetContainerItemDurability(bagID, slotID)
+  return 20, 100
+end
+
+function C_Container.GetContainerItemCooldown(bagID, slotID) return 0, 0, 0 end
+
+function C_Container.GetContainerItemPurchaseInfo() return false end
+
+function C_Container.GetItemCount(itemID) return 1 end
+
+function C_Container.SplitContainerItem(bagID, slotID, count)
+  Stubs.Log("C_Container.SplitContainerItem|" .. bagID .. "|" .. slotID .. "|" .. tostring(count))
+end
+
+C_Item = {}
+
+function C_Item.IsEquippableItem(itemID)
+  return itemID == 5001
+end
+
+function C_Item.IsUsableItem(itemID)
+  return itemID == 5002
+end
+
+function C_Item.IsNonConsumable() return false end
+
+function C_Item.DidItemfailToUse() return false end
+
+Stubs.interaction = nil
+
+Enum = {
+  PlayerInteractionType = { Banker = 3 },
+  AddOnRestrictionType = { Combat = 1 },
+}
+
+C_PlayerInteractionManager = {}
+
+function C_PlayerInteractionManager.IsInteractingWithNpcOfType(kind)
+  return Stubs.interaction == kind
+end
+
+----------------------------------------------------------------------------
+-- Blizzard gamepad globals
+----------------------------------------------------------------------------
+
+GAMEPAD_FACE_BOTTOM = "PAD1"
+GAMEPAD_FACE_RIGHT = "PAD2"
+GAMEPAD_FACE_LEFT = "PAD3"
+GAMEPAD_FACE_TOP = "PAD4"
+
+Stubs.gamepadEnabled = true
+
+InputUtil = {}
+
+function InputUtil.IsGamepadUIEnabled()
+  return Stubs.gamepadEnabled
+end
+
+function InputUtil.IsGamepadControlMode()
+  return Stubs.gamepadEnabled
+end
+
+function Stubs.SetGamepadUIEnabled(value)
+  Stubs.gamepadEnabled = value and true or false
+end
+
+Stubs.stack = nil
+
+function debugstack(...)
+  return Stubs.stack or "stubs\n"
+end
+
+GamepadSharedUtility = {}
+
+function GamepadSharedUtility.CreatePromptedBinding(key, debugName)
+  local prompt = { key = key, debugName = debugName, bindings = {} }
+  function prompt:AddFooterBinding(options)
+    table.insert(prompt.bindings, options)
+  end
+  return prompt
+end
+
+function GamepadSharedUtility.CreatePromptedBindingFooter(owner, debugName)
+  local footer = { debugName = debugName, prompts = {}, isShown = false }
+  _G[debugName] = footer
+  function footer:AddPromptedBinding(prompt)
+    table.insert(footer.prompts, prompt)
+  end
+  function footer:Finalize()
+    footer.finalized = true
+  end
+  function footer:SetCustomAnchor(anchor)
+    footer.customAnchor = anchor
+  end
+  function footer:ApplyInputLegendAttachment()
+    footer.attached = true
+  end
+  function footer:ShowAndActivateBindings()
+    footer.isShown = true
+    Stubs.Log("PromptedBindingFooter.ShowAndActivateBindings|" .. debugName)
+  end
+  function footer:HideAndDeactivateBindings()
+    footer.isShown = false
+    Stubs.Log("PromptedBindingFooter.HideAndDeactivateBindings|" .. debugName)
+  end
+  function footer:Refresh()
+    footer.refreshes = (footer.refreshes or 0) + 1
+    Stubs.Log("PromptedBindingFooter.Refresh|" .. debugName)
+  end
+  return footer
+end
+
+GamepadMode = {}
+
+local focusManager = {
+  shownFrames = {},
+  isUIFocused = false,
+  focusedFrame = nil,
+}
+
+function focusManager:FrameShown(frame)
+  Stubs.Log("GamepadMode.FrameControlsManager.FrameShown|" .. tostring(frame:GetName()))
+  table.insert(self.shownFrames, frame)
+  if frame.smartNavPanelInfoAddedCallback then
+    frame.smartNavPanelInfoAddedCallback()
+  end
+end
+
+function focusManager:FrameHidden(frame)
+  Stubs.Log("GamepadMode.FrameControlsManager.FrameHidden|" .. tostring(frame:GetName()))
+  for index, shownFrame in ipairs(self.shownFrames) do
+    if shownFrame == frame then
+      table.remove(self.shownFrames, index)
+      break
     end
   end
-  self.parent = parent
-  if parent and parent.children then table.insert(parent.children, self) end
-end
-function FrameMixin:GetChildren() return unpack(self.children) end
-function FrameMixin:IsObjectType(t)
-  if t == "Button" then return self.frameType == "Button" or self.frameType == "ItemButton" end
-  return self.frameType == t
-end
-function FrameMixin:IsShown() return self.shown end
-function FrameMixin:IsVisible()
-  if not self.shown then return false end
-  if self.parent then return self.parent:IsVisible() end
-  return true
-end
-function FrameMixin:Show()
-  if self.shown then return end
-  local wasVisible = self:IsVisible()
-  self.shown = true
-  if not wasVisible and self:IsVisible() then self:RunScript("OnShow") end
-end
-function FrameMixin:Hide()
-  if not self.shown then return end
-  local wasVisible = self:IsVisible()
-  self.shown = false
-  if wasVisible then self:RunScript("OnHide") end
-end
-function FrameMixin:SetShown(shown) if shown then self:Show() else self:Hide() end end
-function FrameMixin:RunScript(handler, ...)
-  if self.scripts[handler] then self.scripts[handler](self, ...) end
-  for _, hook in ipairs(self.hooks[handler] or {}) do hook(self, ...) end
-end
-function FrameMixin:SetScript(handler, fn) self.scripts[handler] = fn end
-function FrameMixin:GetScript(handler) return self.scripts[handler] end
-function FrameMixin:HookScript(handler, fn)
-  self.hooks[handler] = self.hooks[handler] or {}
-  table.insert(self.hooks[handler], fn)
-end
-function FrameMixin:RegisterEvent(event)
-  self.registeredEvents[event] = true
-  Stubs.eventFrames[self] = true
-end
-function FrameMixin:UnregisterEvent(event) self.registeredEvents[event] = nil end
-function FrameMixin:SetSize(w, h) self.width, self.height = w, h end
-function FrameMixin:GetSize() return self.width, self.height end
-function FrameMixin:SetPoint() end
-function FrameMixin:ClearAllPoints() end
-function FrameMixin:SetAlpha(a) self.alpha = a end
-function FrameMixin:EnableMouse(enabled) self.mouseEnabled = enabled end
-function FrameMixin:RegisterForClicks(...) self.clicks = { ... } end
-function FrameMixin:GetLeft() return self.left end
-function FrameMixin:GetTop() return self.top end
-function FrameMixin:GetBottom() return self.bottom end
-function FrameMixin:GetEffectiveScale() return self.scale end
-function FrameMixin:GetBagID() return self.bagID end
-function FrameMixin:GetID() return self.slotID or 0 end
-function FrameMixin:IsReadable() return self.readable == true end
-function FrameMixin:Click(button, down)
-  Stubs.Log("Click", self.name or self.id, button or "LeftButton")
-  self:RunScript("OnClick", button or "LeftButton", down or false)
-end
-
-----------------------------------------------------------------------------
--- Globals
-----------------------------------------------------------------------------
-
-_G.UIParent = Stubs.CreateFrame("Frame", "UIParent")
-_G.GetBuildInfo = function() return "1.60.1", "70862", "Nov 7 2026", 16001 end
-_G.InCombatLockdown = function() return Stubs.combat end
-_G.C_RestrictedActions = { IsAddOnRestrictionActive = function() return Stubs.combat end }
-_G.Enum = {
-  AddOnRestrictionType = { Combat = 0 },
-  PlayerInteractionType = { Banker = 8, Merchant = 5 },
-  InputDeviceInterfaceType = { Mkb = 0, Gamepad = 1 },
-}
-_G.C_Timer = { After = function(_, fn) table.insert(Stubs.timers, fn) end }
-_G.RunNextFrame = function(fn) table.insert(Stubs.nextFrameQueue, fn) end
-_G.CursorHasItem = function() return Stubs.cursorHasItem end
-_G.ClearCursor = function() Stubs.cursorHasItem = false Stubs.Log("ClearCursor") end
-_G.InRepairMode = function() return Stubs.repairMode == true end
-_G.SlashCmdList = {}
-_G.print = function(...) Stubs.Log("print", ...) end
-_G.debugstack = function() return Stubs.fakeStack or "" end
-_G.hooksecurefunc = function(tableOrName, name, hook)
-  if type(tableOrName) == "string" then
-    hook, name, tableOrName = name, tableOrName, _G
+  if self.focusedFrame == frame then
+    self.isUIFocused = false
+    self.focusedFrame = nil
   end
-  local original = tableOrName[name]
-  tableOrName[name] = function(...)
-    local results = { original(...) }
-    hook(...)
-    return unpack(results)
+  if SmartNavigation.activeFrame == frame then
+    SmartNavigation.activeFrame = nil
   end
 end
 
-_G.GAMEPAD_FACE_RIGHT = "PAD2"
-_G.GAMEPAD_FACE_BOTTOM = "PAD1"
-_G.GAMEPAD_FACE_LEFT = "PAD3"
-_G.GAMEPAD_FACE_TOP = "PAD4"
-
-Stubs.overrides = {}
-_G.SetOverrideBindingClick = function(owner, isPriority, key, buttonName, mouseButton)
-  assert(not Stubs.combat, "SetOverrideBindingClick in combat")
-  Stubs.overrides[key] = "CLICK " .. buttonName .. ":" .. (mouseButton or "LeftButton")
-  Stubs.Log("SetOverrideBindingClick", key, Stubs.overrides[key])
-end
-_G.SetOverrideBinding = function(owner, isPriority, key, command)
-  assert(not Stubs.combat, "SetOverrideBinding in combat")
-  Stubs.overrides[key] = command
-  Stubs.Log("SetOverrideBinding", key, tostring(command))
-end
-_G.GetBindingAction = function(key) return Stubs.overrides[key] or "" end
-
-_G.MerchantFrame = Stubs.CreateFrame("Frame", "MerchantFrame", UIParent)
-MerchantFrame.selectedTab = 1
-MerchantFrame:Hide()
-
-Stubs.items = {}
-_G.C_Container = {
-  GetContainerItemInfo = function(bag, slot) return Stubs.items[bag .. ":" .. slot] end,
-  GetContainerItemDurability = function() return 5, 10 end,
-  SplitContainerItem = function(...) Stubs.Log("SplitContainerItem", ...) end,
-}
-_G.C_Item = {
-  IsEquippableItem = function(itemID) return itemID == 2000 end,
-  IsUsableItem = function(itemID) return itemID == 3000 end,
-}
-Stubs.bankOpen = false
-_G.C_PlayerInteractionManager = {
-  IsInteractingWithNpcOfType = function(kind) return kind == Enum.PlayerInteractionType.Banker and Stubs.bankOpen end,
-}
-_G.StackSplitFrame = Stubs.CreateFrame("Frame", "StackSplitFrame", UIParent)
-function StackSplitFrame:OpenStackSplitFrame(count, owner) Stubs.Log("OpenStackSplitFrame", count, owner.name or owner.id) end
-_G.ShowUIPanel = function(frame) Stubs.Log("ShowUIPanel", frame.name) end
-
-_G.MenuUtil = {
-  CreateContextMenu = function(owner, generator)
-    local entries = {}
-    local description = {
-      SetTag = function() end,
-      CreateDivider = function() table.insert(entries, { divider = true }) end,
-      CreateButton = function(_, label, fn) table.insert(entries, { label = label, func = fn }) end,
-    }
-    generator(owner, description)
-    Stubs.lastMenu = entries
-    Stubs.Log("CreateContextMenu", #entries)
-    return entries
-  end,
-}
-
-----------------------------------------------------------------------------
--- Blizzard gamepad UI
-----------------------------------------------------------------------------
-
-_G.InputUtil = { IsGamepadUIEnabled = function() return Stubs.gamepadUI end }
-
-local FocusManager = { shownFrames = {}, isUIFocused = false, focusedFrame = nil }
-_G.GamepadMode = { FrameControlsManager = FocusManager }
-
-local function IndexOf(list, value)
-  for i, v in ipairs(list) do if v == value then return i end end
-  return nil
-end
-
-function FocusManager:FrameShown(frame)
-  assert(not Stubs.combat, "FrameShown in combat")
-  Stubs.Log("FrameShown", frame.name or frame.id)
-  if IndexOf(self.shownFrames, frame) then return false end
-  table.insert(self.shownFrames, frame)
-  self:Focus(frame)
-  return true
-end
-
-function FocusManager:Focus(frame)
-  if self.focusedFrame and self.focusedFrame ~= frame and self.focusedFrame.UnfocusGamepad then
-    self.focusedFrame.UnfocusGamepad(self.focusedFrame)
-  end
+function focusManager:FocusFrame(frame)
   self.focusedFrame = frame
   self.isUIFocused = true
-  SmartNavigation:HandlePanelOpen(frame)
-  if frame.FocusGamepad then frame.FocusGamepad(frame) end
+  SmartNavigation.activeFrame = frame
+  if frame.UnfocusGamepad then
+    frame:UnfocusGamepad()
+  end
+  if frame.FocusGamepad then
+    frame:FocusGamepad()
+  end
 end
 
-function FocusManager:FrameHidden(frame)
-  assert(not Stubs.combat, "FrameHidden in combat")
-  Stubs.Log("FrameHidden", frame.name or frame.id)
-  local index = IndexOf(self.shownFrames, frame)
-  if not index then return false end
-  table.remove(self.shownFrames, index)
-  if self.focusedFrame == frame then
-    if frame.UnfocusGamepad then frame.UnfocusGamepad(frame) end
-    SmartNavigation:RemovePanel(frame)
-    if self.shownFrames[1] then
-      self:Focus(self.shownFrames[1])
-    else
-      self.focusedFrame = nil
-      self.isUIFocused = false
+GamepadMode.FrameControlsManager = focusManager
+Stubs.focusManager = focusManager
+
+SmartNavigation = {}
+
+function SmartNavigation_IsGamepadControlMode()
+  return Stubs.gamepadEnabled
+end
+
+function SmartNavigation_IsCurrentButtonClickable()
+  return true
+end
+
+function SmartNavigation_IsCurrentButtonDestructive()
+  return false
+end
+
+function SmartNavigation:SetTargetButtonForFrame(frame, button)
+  Stubs.Log("SmartNavigation.SetTargetButtonForFrame|" .. tostring(frame:GetName()) .. "|" .. tostring(button:GetName()))
+  self.targets = self.targets or {}
+  self.targets[frame] = button
+  if self.activeFrame == frame then
+    self.currentButton = button
+  end
+end
+
+function SmartNavigation:GetActiveFrame()
+  return self.activeFrame
+end
+
+function SmartNavigation:GetCurrentButton()
+  return self.currentButton
+end
+
+function SmartNavigation:RefreshButtonGroups(frame)
+  Stubs.Log("SmartNavigation.RefreshButtonGroups|" .. tostring(frame:GetName()))
+end
+
+function SmartNavigation_MarkFrameIgnored(frame)
+  Stubs.Log("SmartNavigation_MarkFrameIgnored|" .. tostring(frame:GetName()))
+  frame.ignored = true
+end
+
+MenuFrame = { SetDisplayMode = function() end }
+
+MenuUtil = {}
+Stubs.activeContextMenu = nil
+
+function MenuUtil.CreateContextMenu(owner, populate)
+  local menu = { owner = owner, entries = {} }
+  function menu:SetTag(tag)
+    menu.tag = tag
+    Stubs.Log("Menu.SetTag|" .. tostring(tag))
+  end
+  function menu:CreateButton(label, callback)
+    table.insert(menu.entries, { label = label, callback = callback })
+  end
+  function menu:CreateDivider() end
+  function menu:CreateTitle(label) end
+  Stubs.activeContextMenu = menu
+  populate(nil, menu)
+end
+
+function Stubs.HasContextEntry(label)
+  local menu = Stubs.activeContextMenu
+  assert(menu, "no context menu open")
+  for _, entry in ipairs(menu.entries) do
+    if entry.label == label then
+      return true
     end
   end
-  return true
+  return false
 end
 
-local SmartNav = { panels = {}, currentButton = nil, activeFrame = nil }
-_G.SmartNavigation = SmartNav
-function SmartNav:HandlePanelOpen(frame)
-  if not self.panels[frame] then
-    self.panels[frame] = {}
-    if frame.smartNavPanelInfoAddedCallback then frame.smartNavPanelInfoAddedCallback(self.panels[frame]) end
-  end
-  self.activeFrame = frame
-  self.currentButton = self.panels[frame].target
-end
-function SmartNav:RemovePanel(frame)
-  self.panels[frame] = nil
-  if self.activeFrame == frame then self.activeFrame = nil self.currentButton = nil end
-end
-function SmartNav:SetTargetButtonForFrame(frame, button)
-  assert(not Stubs.combat, "SetTargetButtonForFrame in combat")
-  Stubs.Log("SetTargetButtonForFrame", frame.name or frame.id, button and (button.name or button.id))
-  self.panels[frame] = self.panels[frame] or {}
-  self.panels[frame].target = button
-  if self.activeFrame == frame then self.currentButton = button end
-end
-function SmartNav:RefreshButtonGroups(frame)
-  assert(not Stubs.combat, "RefreshButtonGroups in combat")
-  Stubs.Log("RefreshButtonGroups", frame.name or frame.id)
-end
-function SmartNav:GetActiveFrame() return self.activeFrame end
-function SmartNav:GetCurrentButton() return self.currentButton end
-function SmartNav:Select(button)
-  self.currentButton = button
-  if self.activeFrame and self.activeFrame.SmartNavigationOnSelect then
-    self.activeFrame.SmartNavigationOnSelect(self.activeFrame, button)
-  end
-end
-function SmartNav:PressB()
-  local frame = self.activeFrame
-  if frame and frame.SmartNavigationCloseHandler then
-    return frame.SmartNavigationCloseHandler(frame)
-  end
-end
-_G.SmartNavigation_MarkFrameIgnored = function(frame)
-  assert(not Stubs.combat, "MarkFrameIgnored in combat")
-  frame.ignored = true
-  Stubs.Log("MarkFrameIgnored", frame.name or frame.id)
-end
-_G.SmartNavigation_IsCurrentButtonClickable = function() return SmartNav.currentButton ~= nil end
+StackSplitFrame = {}
 
-_G.PromptedBindingMixin = { VISIBILITY_TYPE = { ALWAYS = 1, ONLY_IF_USABLE = 2, NEVER = 3 } }
-_G.AnchorUtil = { CreateAnchor = function(...) return { ... } end }
-
-local PromptMixin = {}
-PromptMixin.__index = PromptMixin
-function PromptMixin:AddFooterBinding(opts) self.opts = opts end
-function PromptMixin:GetLabel()
-  local label = self.opts.label
-  if type(label) == "function" then return label() end
-  return label
-end
-function PromptMixin:IsUsable()
-  local cond = self.opts.conditions
-  if type(cond) == "function" then return cond() end
-  return true
-end
-
-local FooterMixin = {}
-FooterMixin.__index = FooterMixin
-function FooterMixin:AddPromptedBinding(prompt) table.insert(self.prompts, prompt) end
-function FooterMixin:Finalize() self.finalized = true end
-function FooterMixin:SetCustomAnchor(anchor) self.customAnchor = anchor end
-function FooterMixin:ApplyInputLegendAttachment() end
-function FooterMixin:ShowAndActivateBindings() self.isShown = true self.refreshes = (self.refreshes or 0) + 1 Stubs.Log("FooterShow", self.parent.name) end
-function FooterMixin:HideAndDeactivateBindings() self.isShown = false Stubs.Log("FooterHide", self.parent.name) end
-function FooterMixin:Refresh() self.refreshes = (self.refreshes or 0) + 1 end
-function FooterMixin:VisibleLabels()
-  local labels = {}
-  for _, prompt in ipairs(self.prompts) do
-    if prompt:IsUsable() then table.insert(labels, prompt.key .. "=" .. tostring(prompt:GetLabel())) end
-  end
-  return table.concat(labels, ", ")
-end
-
-Stubs.footers = {}
-_G.GamepadSharedUtility = {
-  CreatePromptedBinding = function(key, debugName)
-    assert(type(debugName) == "string", "prompt-only bindings must pass a debug name as the second argument")
-    return setmetatable({ key = key, debugName = debugName }, PromptMixin)
-  end,
-  CreatePromptedBindingFooter = function(parent, debugName)
-    local footer = setmetatable({ parent = parent, debugName = debugName, prompts = {} }, FooterMixin)
-    Stubs.footers[parent] = footer
-    return footer
-  end,
-}
-
-_G.ContainerFrameCombinedBags = Stubs.CreateFrame("Frame", "ContainerFrameCombinedBags")
-local hiddenParent = Stubs.CreateFrame("Frame", "BaganatorHiddenParent")
-hiddenParent:Hide()
-ContainerFrameCombinedBags:SetParent(hiddenParent)
-ContainerFrameCombinedBags:Hide()
-_G.BankFrame = Stubs.CreateFrame("Frame", "BankFrame")
-BankFrame:SetParent(hiddenParent)
-_G.ToggleBackpack_Combined = function()
-  if ContainerFrameCombinedBags:IsShown() then ContainerFrameCombinedBags:Hide() else ContainerFrameCombinedBags:Show() end
+function StackSplitFrame:OpenStackSplitFrame(maxSplit, button, point1, point2)
+  Stubs.Log("StackSplitFrame:OpenStackSplitFrame|" .. tostring(maxSplit))
 end
 
 ----------------------------------------------------------------------------
--- Baganator
+-- Item buttons and anchors
 ----------------------------------------------------------------------------
 
-local callbacks = {}
-local CallbackRegistry = {}
-function CallbackRegistry:RegisterCallback(event, fn, owner)
-  callbacks[event] = callbacks[event] or {}
-  table.insert(callbacks[event], fn)
-end
-function CallbackRegistry:TriggerEvent(event, ...)
-  Stubs.Log("BaganatorEvent", event)
-  for _, fn in ipairs(callbacks[event] or {}) do fn(nil, ...) end
-  if event == "BagShow" then Stubs.backpack:Show() end
-  if event == "BagHide" then Stubs.backpack:Hide() end
-end
+local itemButtonCounter = 0
 
-local function MakeView(name, tag)
-  local view = Stubs.CreateFrame("Frame", name, UIParent, "ButtonFrameTemplate")
-  view:Hide()
-  view.SearchWidget = Stubs.CreateFrame("Frame", name .. "Search", view)
-  view.SearchWidget.SearchBox = Stubs.CreateFrame("EditBox", name .. "SearchBox", view.SearchWidget)
-  view.Container = Stubs.CreateFrame("Frame", name .. "Container", view)
-  view.CloseButton = Stubs.CreateFrame("Button", name .. "CloseButton", view)
-  view.SortButton = Stubs.CreateFrame("Button", name .. "SortButton", view)
-  function view:CombineStacksAndSort(isReverse) Stubs.Log("CombineStacksAndSort", self.name, tostring(isReverse)) end
-  function view:ToggleBagSlots() Stubs.Log("ToggleBagSlots", self.name) end
-  function view:ToggleBank() Stubs.Log("ToggleBank", self.name) end
-  return view, { regionType = "ButtonFrame", region = view, tags = { tag } }
-end
-
-function Stubs.MakeItemButton(parent, name, bagID, slotID, itemID, opts)
-  opts = opts or {}
-  local button = Stubs.CreateFrame("ItemButton", name, parent)
+function Stubs.MakeItemButton(parent, index)
+  itemButtonCounter = itemButtonCounter + 1
+  local button = MakeFrame("ContainerItemButton" .. itemButtonCounter, parent, "ItemButton")
+  button.id = index
+  button.hasItem = true
+  button.quality = 1
+  button.isBag = false
+  button.isSoulBound = false
   button.buttonContext = "ButtonContext_ContainerFrameItemButton"
-  button.bagID, button.slotID = bagID, slotID
-  button.left, button.top = opts.left or 100, opts.top or 400
-  button.readable = opts.readable
-  if itemID then
-    button.hasItem = true
-    button.BGR = { itemID = itemID }
-    Stubs.items[bagID .. ":" .. slotID] = { itemID = itemID, stackCount = opts.stackCount or 1, hasLoot = opts.hasLoot, isLocked = false }
-  else
-    button.hasItem = false
-    button.BGR = {}
+  button.bagID = 0
+  button.BGR = { itemID = 5000, itemQuality = 1 }
+  function button:GetID() return self.id end
+  function button:GetBagID() return self.bagID end
+  function button:UpdateTooltip() end
+  function button:IsReadable() return false end
+  function button:Click(buttonKind)
+    Stubs.Log(tostring(self:GetName()) .. ":Click|" .. tostring(buttonKind))
   end
-  button:SetScript("OnClick", function(self, mouseButton) Stubs.Log("ItemOnClick", self.name, mouseButton) end)
   return button
 end
 
-local backpack, backpackDetails = MakeView("Baganator_SingleViewBackpackViewFrameblizzard", "backpack")
-local bank, bankDetails = MakeView("Baganator_SingleViewBankViewFrameblizzard", "bank")
-Stubs.backpack, Stubs.bank = backpack, bank
-
-local allFrames = { backpackDetails, bankDetails }
-local listeners = {}
-_G.Baganator = {
-  API = {
-    Skins = {
-      GetAllFrames = function() return allFrames end,
-      RegisterListener = function(fn) table.insert(listeners, fn) end,
-    },
-  },
-  CallbackRegistry = CallbackRegistry,
-}
-function Stubs.AddBaganatorFrame(details)
-  table.insert(allFrames, details)
-  for _, fn in ipairs(listeners) do fn(details) end
+function Stubs.AddAnchor(region, parent, point, x, y)
+  region.x = (parent.x or 0) + x
+  region.y = (parent.y or 0) + y
+  region.width = 20
+  region.height = 20
 end
-Stubs.MakeView = MakeView
+
+----------------------------------------------------------------------------
+-- Blizzard frames BetterBags Controller interacts with
+----------------------------------------------------------------------------
+
+-- BetterBags re-parents Blizzard's own bag frames under a sneaky frame
+-- (core/init.lua), which is what makes them invisible to the gamepad UI.
+BetterBagsHiddenParent = MakeFrame("BetterBagsHiddenParent", UIParent)
+BetterBagsHiddenParent.shown = false
+BetterBagsHiddenParent.visible = false
+
+ContainerFrameCombinedBags = MakeFrame("ContainerFrameCombinedBags", BetterBagsHiddenParent)
+ContainerFrameCombinedBags.shown = false
+ContainerFrameCombinedBags.visible = false
+
+BankFrame = MakeFrame("BankFrame", BetterBagsHiddenParent)
+BankFrame.shown = false
+BankFrame.visible = false
+BankFrame.Close = function(self) self:Hide() end
+
+function ToggleBackpack_Combined()
+  if ContainerFrameCombinedBags:IsShown() then
+    ContainerFrameCombinedBags:Hide()
+  else
+    ContainerFrameCombinedBags:Show()
+  end
+end
+
+MerchantFrame = MakeFrame("MerchantFrame", UIParent)
+MerchantFrame.shown = false
+MerchantFrame.visible = false
+MerchantFrame.selectedTab = 1
+
+----------------------------------------------------------------------------
+-- BetterBags surface
+----------------------------------------------------------------------------
+
+Stubs.betterBags = { backpack = nil, bank = nil, toggles = 0 }
+
+function Stubs.MakeWindow(name)
+  local window = MakeFrame(name, UIParent)
+  window.shown = false
+  window.visible = false
+
+  for i = 1, 5 do
+    local item = Stubs.MakeItemButton(window, i)
+    item.name = name .. "Item" .. i
+    _G[item.name] = item
+    Stubs.AddAnchor(item, window, "CENTER", 50 * i, 0)
+  end
+  window.searchBox = MakeFrame(name .. "SearchBox", window)
+
+  _G[name] = window
+  return window
+end
+
+Stubs.betterBags.backpack = Stubs.MakeWindow("BetterBagsBagBackpack")
+Stubs.betterBags.bank = Stubs.MakeWindow("BetterBagsBagBank")
+
+function BetterBags_ToggleBags()
+  Stubs.betterBags.toggles = Stubs.betterBags.toggles + 1
+  if Stubs.betterBags.backpack:IsVisible() then
+    Stubs.betterBags.backpack:Hide()
+    Stubs.betterBags.bank:Hide()
+  else
+    Stubs.betterBags.backpack:Show()
+    Stubs.betterBags.bank:Show()
+  end
+end

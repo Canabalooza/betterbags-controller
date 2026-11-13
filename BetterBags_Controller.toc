@@ -1,12 +1,10 @@
 ## Interface: 16001
 ## AllowLoadGameType: camelot
-## Title: Baganator Controller
-## Notes: Makes Baganator's bag, bank and guild bank windows work with the WoW Forever Gamepad UI: focus, D-pad navigation, button prompts and vendor/bank switching.
-## Author: YourBr0ther
-## Version: @project-version@
-## Dependencies: Baganator
-## OptionalDeps: Syndicator
-## Group: Baganator
+## Title: BetterBags Controller
+## Notes: Makes BetterBags' bag, bank, guild bank and vendor windows work with the WoW Forever Gamepad UI: focus, D-pad navigation, button prompts and radial-menu bag toggle.
+## Author: YourBr0ther (BetterBags port: Canabalooza/betterbags-controller)
+## Version: 0.1
+## Dependencies: BetterBags
 
 ## Category-enUS: Inventory
 ## Category-deDE: Inventar
@@ -20,7 +18,7 @@
 ## Category-zhCN: 物品栏
 ## Category-zhTW: 物品欄
 
-## X-Website: https://github.com/YourBr0ther/baganator-controller
+## X-Website: https://github.com/Canabalooza/betterbags-controller
 ## X-License: MIT
 
 Locales.lua

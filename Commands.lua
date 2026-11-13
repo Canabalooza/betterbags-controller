@@ -1,6 +1,6 @@
 local _, addonTable = ...
 
--- /bgrc prints a status report for bug reports.
+-- /bbbc prints a status report for bug reports.
 
 local Core = addonTable.Core
 local L = addonTable.Locales
@@ -35,6 +35,6 @@ local function PrintStatus()
   print("  " .. L.STATUS_FOCUSED .. ": " .. (focused and GetFrameName(focused) or L.STATUS_NONE))
 end
 
-SLASH_BAGANATOR_CONTROLLER1 = "/bgrc"
-SLASH_BAGANATOR_CONTROLLER2 = "/baganatorcontroller"
-SlashCmdList["BAGANATOR_CONTROLLER"] = PrintStatus
+SLASH_BETTERBAGS_CONTROLLER1 = "/bbbc"
+SLASH_BETTERBAGS_CONTROLLER2 = "/betterbagscontroller"
+SlashCmdList["BETTERBAGS_CONTROLLER"] = PrintStatus

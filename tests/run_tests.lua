@@ -8,7 +8,7 @@ dofile(root .. "/tests/wow_stubs.lua")
 
 local function ReadToc()
   local files = {}
-  for line in io.lines(root .. "/Baganator_Controller.toc") do
+  for line in io.lines(root .. "/BetterBags_Controller.toc") do
     line = line:gsub("\r", "")
     if line ~= "" and not line:match("^##") and not line:match("^#") then
       table.insert(files, line)
@@ -18,220 +18,351 @@ local function ReadToc()
 end
 
 -- Any read of a global the stubs do not define is a bug in the addon (a typo
--- or a missing stub), except for optional globals the addon probes on purpose
--- and the Blizzard/Baganator string constants looked up by Locales.Get.
+-- or a missing stub), except for globals the addon probes on purpose and the
+-- Blizzard translation-string constants looked up by Locales.Get.
 local optionalGlobals = {
-  GuildBankFrame = true,
-  BankFrame = true,
-  ContainerFrameCombinedBags = true,
-  ToggleBackpack_Combined = true,
-  RunNextFrame = true,
-  C_RestrictedActions = true,
-  C_PlayerInteractionManager = true,
-  MenuUtil = true,
-  StackSplitFrame = true,
-  Baganator = true,
-  SmartNavigation_IsCurrentButtonClickable = true,
+  BetterBagsNextBackpack = true,
+  BetterBagsNextBank = true,
+  BetterBagsNextGuildBank = true,
+  BetterBagsNextVendor = true,
+  StackSplitSplit = true,
+  NUM_STACK_SPLIT = true,
+  GameTooltip = true,
 }
 setmetatable(_G, {
   __index = function(_, key)
-    if optionalGlobals[key] or (type(key) == "string" and key:match("^[A-Z][A-Z0-9_]*$")) then
+    if optionalGlobals[key] or (type(key) == "string" and
+        (key:match("^BTN?_[A-Z]") or key:match("^[A-Z][A-Z0-9_]*$"))) then
       return nil
     end
     error("read of undefined global '" .. tostring(key) .. "'", 2)
   end,
 })
 
-local addonTable = {}
-for _, file in ipairs(ReadToc()) do
-  local chunk = assert(loadfile(root .. "/" .. file))
-  chunk("Baganator_Controller", addonTable)
+-- Capture print output into the stub log so status-command assertions work.
+local realPrint = print
+print = function(...)
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[i] = tostring(select(i, ...))
+  end
+  Stubs.Log(table.concat(parts, " "))
 end
 
-local failures = 0
-local function Check(condition, message)
-  if condition then
-    io.write("  ok   ", message, "\n")
-  else
-    failures = failures + 1
-    io.write("  FAIL ", message, "\n")
+local addonTable = {}
+for _, name in ipairs(ReadToc()) do
+  local chunk = assert(loadfile(root .. "/" .. name))
+  chunk(nil, addonTable)
+end
+
+local function assertEqual(actual, expected, message)
+  if actual ~= expected then
+    error((message or "assertion failed") .. " (expected " .. tostring(expected)
+      .. ", got " .. tostring(actual) .. ")", 2)
   end
 end
-local function Section(name)
-  io.write("\n== ", name, "\n")
+
+local function assertTrue(value, message)
+  if not value then
+    error(message or "assertion failed", 2)
+  end
 end
 
-local Core = addonTable.Core
-local backpack, bank = Stubs.backpack, Stubs.bank
-local fcm = GamepadMode.FrameControlsManager
+----------------------------------------------------------------------------
+-- Login
+----------------------------------------------------------------------------
 
-Section("login")
-Stubs.FireEvent("PLAYER_LOGIN")
-Check(Core.IsInitialized(), "addon initializes on PLAYER_LOGIN")
-Check(_G.BaganatorController_InputButton ~= nil, "proxy input button created")
-Check(addonTable.Frames.GetInfo(backpack) ~= nil and addonTable.Frames.GetInfo(backpack).kind == "backpack", "backpack view discovered through Baganator skin API")
-Check(addonTable.Frames.GetInfo(bank) ~= nil and addonTable.Frames.GetInfo(bank).kind == "bank", "bank view discovered")
+local function TestLogin()
+  Stubs.DispatchEvent("PLAYER_LOGIN")
+  Stubs.RunNextFrames()
 
-Section("open backpack with gamepad UI on")
-local item1 = Stubs.MakeItemButton(backpack.Container, "Item1", 0, 1, 2000, { left = 10, top = 400 })
-local item2 = Stubs.MakeItemButton(backpack.Container, "Item2", 0, 2, 3000, { left = 50, top = 400, stackCount = 5 })
-local item3 = Stubs.MakeItemButton(backpack.Container, "Item3", 0, 3, nil, { left = 10, top = 360 })
-Stubs.ClearLog()
-backpack:Show()
-Check(Core.IsTracked(backpack), "FrameShown called when the backpack is shown")
-Check(backpack.SearchWidget.ignored, "search widget marked ignored for SmartNavigation")
-Check(SmartNavigation:GetCurrentButton() == item1, "cursor starts on the top-left item button")
-Check(Stubs.footers[backpack] and Stubs.footers[backpack].isShown, "prompt footer shown on focus")
-Check(Stubs.overrides.PAD3 == "CLICK BaganatorController_InputButton:Context", "X bound to context action while focused")
-Check(Stubs.overrides.PAD4 == "CLICK BaganatorController_InputButton:More", "Y bound to more-actions menu while focused")
-Check(ContainerFrameCombinedBags:IsShown(), "Blizzard combined bag frame mirrored as shown (radial state)")
-
-Section("prompts and X action")
-local footer = Stubs.footers[backpack]
-Check(footer:VisibleLabels():find("PAD1=Select", 1, true) ~= nil, "A prompt reads Select on an item")
-Check(footer:VisibleLabels():find("PAD3=Equip", 1, true) ~= nil, "X prompt reads Equip for equippable item: " .. footer:VisibleLabels())
-Stubs.ClearLog()
-BaganatorController_InputButton:Click("Context")
-Check(Stubs.LogContains("ItemOnClick Item1 RightButton"), "X right-clicks the focused item button")
-
-SmartNavigation:Select(item2)
-Check(footer:VisibleLabels():find("PAD3=Use", 1, true) ~= nil, "X prompt reads Use for usable item")
-SmartNavigation:Select(item3)
-Check(footer:VisibleLabels():find("PAD3=", 1, true) == nil, "no X prompt on an empty slot")
-Check(footer:VisibleLabels():find("PAD1=", 1, true) == nil, "no A prompt on an empty slot without a held item")
-Stubs.cursorHasItem = true
-Check(footer:VisibleLabels():find("PAD1=Place", 1, true) ~= nil, "A prompt reads Place while carrying an item")
-Check(footer:VisibleLabels():find("PAD2=Back", 1, true) ~= nil, "B prompt reads Back while carrying an item")
-Stubs.ClearLog()
-Check(SmartNavigation:PressB() == true, "close handler reports handled")
-Check(Stubs.LogContains("ClearCursor") and backpack:IsVisible(), "B drops the held item instead of closing")
-Stubs.cursorHasItem = false
-
-Section("vendor and bank context")
-SmartNavigation:Select(item1)
-MerchantFrame:Show()
-Check(footer:VisibleLabels():find("PAD3=Sell", 1, true) ~= nil, "X prompt reads Sell at a vendor")
-Stubs.repairMode = true
-Check(footer:VisibleLabels():find("PAD3=Repair", 1, true) ~= nil, "X prompt reads Repair in repair mode")
-Stubs.repairMode = false
-MerchantFrame:Hide()
-Stubs.bankOpen = true
-Check(footer:VisibleLabels():find("PAD3=Move", 1, true) ~= nil, "X prompt reads Move while the bank is open")
-Stubs.bankOpen = false
-
-Section("Y more actions menu")
-SmartNavigation:Select(item2)
-Stubs.ClearLog()
-BaganatorController_InputButton:Click("More")
-Check(Stubs.lastMenu ~= nil, "context menu created")
-local labels = {}
-for _, entry in ipairs(Stubs.lastMenu or {}) do if entry.label then labels[entry.label] = entry end end
-Check(labels["Split Stack"] ~= nil, "split stack offered for a stack of 5")
-Check(labels["Clean Up Bags"] ~= nil, "sort offered")
-Check(labels["Bag Slots"] ~= nil and labels["All Characters"] ~= nil and labels["Currencies"] ~= nil, "backpack toggles offered")
-Check(labels["Customise Baganator"] ~= nil, "customise entry offered")
-if labels["Split Stack"] then
-  labels["Split Stack"].func()
-  Check(Stubs.LogContains("OpenStackSplitFrame 5 Item2") and Stubs.LogContains("ShowUIPanel StackSplitFrame"), "split stack opens the stack split frame")
-end
-if labels["Clean Up Bags"] then
-  labels["Clean Up Bags"].func()
-  Check(Stubs.LogContains("CombineStacksAndSort Baganator_SingleViewBackpackViewFrameblizzard false"), "sort calls Baganator's sorter")
+  assertTrue(addonTable.Core.IsInitialized(), "expected initialization with BetterBags loaded")
+  local backpack = Stubs.betterBags.backpack
+  local bank = Stubs.betterBags.bank
+  assertTrue(addonTable.Frames.GetInfo(backpack), "backpack window discovered")
+  assertTrue(addonTable.Frames.GetInfo(bank), "bank window discovered")
+  assertEqual(addonTable.Frames.GetInfo(backpack).kind, "backpack")
+  assertEqual(addonTable.Frames.GetInfo(bank).kind, "bank")
+  assertTrue(_G.BetterBagsController_InputButton, "proxy button created")
+  assertTrue(not Stubs.LogContains("FrameControlsManager.FrameShown"),
+    "no registration while the windows are hidden")
 end
 
-Section("layout refresh")
-Stubs.ClearLog()
-item1:Hide()
-Baganator.CallbackRegistry:TriggerEvent("ViewComplete")
-Stubs.RunNextFrames()
-Check(Stubs.LogContains("RefreshButtonGroups Baganator_SingleViewBackpackViewFrameblizzard"), "ViewComplete re-scans the frame")
-Check(SmartNavigation:GetCurrentButton() == item2, "cursor moves off a hidden button to the next item: " .. tostring(SmartNavigation:GetCurrentButton() and SmartNavigation:GetCurrentButton().name))
-item1:Show()
+----------------------------------------------------------------------------
+-- Opening and focusing the backpack
+----------------------------------------------------------------------------
 
-Section("close with B")
-Stubs.ClearLog()
-Check(SmartNavigation:PressB() == true, "close handler handled")
-Check(not backpack:IsVisible(), "B closes the backpack through Baganator's BagHide")
-Check(not Core.IsTracked(backpack), "FrameHidden called on hide")
-Check(not footer.isShown, "footer hidden on hide")
-Check(not ContainerFrameCombinedBags:IsShown(), "Blizzard combined bag frame mirrored as hidden")
+local function TestBackpackOpenAndFocus()
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
 
-Section("radial menu toggle")
-Stubs.ClearLog()
-Stubs.fakeStack = "GamepadRadial.lua:619: in function <...>"
-ToggleBackpack_Combined()
-Check(backpack:IsVisible(), "radial Bags entry opens Baganator")
-ToggleBackpack_Combined()
-Check(not backpack:IsVisible(), "radial Bags entry closes Baganator")
-Stubs.fakeStack = "ContainerFrame.lua:195: in function `ToggleBackpack'"
-Stubs.ClearLog()
-ToggleBackpack_Combined()
-Check(not Stubs.LogContains("BaganatorEvent"), "no double toggle when called through ToggleBackpack (Baganator handles it)")
-ContainerFrameCombinedBags:Hide()
-Stubs.fakeStack = nil
+  backpack:Show()
+  Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunNextFrames()
 
-Section("hidden Blizzard bank frame")
-Stubs.ClearLog()
-fcm:FrameShown(BankFrame)
-Check(not Core.IsTracked(BankFrame), "invisible BankFrame is unregistered right after Blizzard registers it")
-
-Section("combat deferral")
-Stubs.combat = true
-backpack:Show()
-Check(not Core.IsTracked(backpack), "no FrameShown while combat restricted")
-Stubs.combat = false
-Stubs.FireEvent("PLAYER_REGEN_ENABLED")
-Check(Core.IsTracked(backpack), "frame registered after combat ends")
-Stubs.combat = true
-backpack:Hide()
-Check(Core.IsTracked(backpack), "no FrameHidden while combat restricted")
-Stubs.combat = false
-Stubs.FireEvent("PLAYER_REGEN_ENABLED")
-Check(not Core.IsTracked(backpack), "stale registration cleaned up after combat")
-
-Section("two frames and unfocus")
-backpack:Show()
-bank:Show()
-Check(fcm.focusedFrame == bank, "newly shown bank takes focus")
-Check(not Stubs.footers[backpack].isShown and Stubs.footers[bank].isShown, "only the focused frame shows a footer")
-bank:Hide()
-Check(fcm.focusedFrame == backpack and Stubs.footers[backpack].isShown, "focus and footer return to the backpack")
-
-Section("leaving the gamepad UI")
-Stubs.gamepadUI = false
--- Blizzard's UninitializeGamepad wipes the focus manager and SmartNavigation
--- state on this transition; emulate that before our handler runs.
-fcm.shownFrames = {}
-fcm.focusedFrame = nil
-fcm.isUIFocused = false
-SmartNavigation.panels = {}
-SmartNavigation.activeFrame = nil
-SmartNavigation.currentButton = nil
-Stubs.FireEvent("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-Stubs.RunNextFrames()
-Check(Stubs.overrides.PAD3 == nil and Stubs.overrides.PAD4 == nil, "our X/Y overrides cleared when leaving the gamepad UI")
-Check(not Stubs.footers[backpack].isShown, "footers hidden when leaving the gamepad UI")
-backpack:Hide()
-backpack:Show()
-Check(#fcm.shownFrames == 0 or not Core.IsTracked(backpack), "no registration while gamepad UI is off")
-Stubs.gamepadUI = true
-Stubs.FireEvent("INPUT_DEVICE_INTERFACE_TRANSITION", 1, 0)
-Stubs.RunNextFrames()
-Check(Core.IsTracked(backpack), "already open frame registered when gamepad UI turns on")
-
-Section("late frame creation (skin swap)")
-local lateView, lateDetails = Stubs.MakeView("Baganator_CategoryViewBackpackViewFramedark", "backpack")
-Stubs.AddBaganatorFrame(lateDetails)
-Check(addonTable.Frames.GetInfo(lateView) ~= nil, "frames created later are picked up through the skin listener")
-
-Section("slash command")
-Stubs.ClearLog()
-SlashCmdList["BAGANATOR_CONTROLLER"]("")
-Check(Stubs.LogContains("Baganator Controller status"), "/bgrc prints a status report")
-
-io.write("\n")
-if failures > 0 then
-  io.write(failures, " check(s) failed\n")
-  os.exit(1)
+  assertTrue(Stubs.LogContains("FrameControlsManager.FrameShown|BetterBagsBagBackpack"),
+    "backpack registered with the focus manager")
+  assertTrue(Stubs.LogContains("SmartNavigation_MarkFrameIgnored|BetterBagsBagBackpackSearchBox"),
+    "search box marked ignored")
+  assertTrue(Stubs.LogContains("SetTargetButtonForFrame|BetterBagsBagBackpack|BetterBagsBagBackpackItem1"),
+    "initial smart-navigation target set on focus")
+  assertTrue(_G.BetterBagsControllerFooter and _G.BetterBagsControllerFooter.isShown,
+    "prompt footer shown on focus")
+  assertTrue(Stubs.LogContains("SetOverrideBindingClick|PAD3|CLICK BetterBagsController_InputButton:Context"),
+    "X override bound")
+  assertTrue(Stubs.LogContains("SetOverrideBindingClick|PAD4|CLICK BetterBagsController_InputButton:More"),
+    "Y override bound")
+  assertTrue(_G.ContainerFrameCombinedBags:IsShown(),
+    "Blizzard combined-bags state mirrored while BetterBags backpack is open")
 end
-io.write("all checks passed\n")
+
+----------------------------------------------------------------------------
+-- Action labels and proxy clicks
+----------------------------------------------------------------------------
+
+local function TestContextAndMoreActions()
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
+  local item1 = _G.BetterBagsBagBackpackItem1
+
+  Stubs.focusManager:FocusFrame(backpack)
+  SmartNavigation.currentButton = item1
+
+  assertEqual(addonTable.Actions.GetSelectLabel(backpack), "Select", "select label")
+
+  -- Plain container item: no X action.
+  Stubs.containerItemInfo[0][1].hasLoot = false
+  assertEqual(addonTable.Actions.GetContextLabel(backpack), nil, "no X action on a plain item")
+
+  -- An openable container: X opens it.
+  Stubs.containerItemInfo[0][1].hasLoot = true
+  assertEqual(addonTable.Actions.GetContextLabel(backpack), "Open", "X opens a bag with loot")
+
+  _G.BetterBagsController_InputButton:Click("Context")
+  Stubs.RunNextFrames()
+  assertTrue(Stubs.LogContains("BetterBagsBagBackpackItem1:Click|RightButton"),
+    "X performs the context action")
+
+  -- Y opens the more-actions menu with Split Stack on a stack.
+  assertTrue(addonTable.Actions.CanOpenMoreActions(backpack), "Y available on the backpack")
+  _G.BetterBagsController_InputButton:Click("More")
+  Stubs.RunNextFrames()
+  assertTrue(Stubs.LogContains("Menu.SetTag|MENU_BETTERBAGS_CONTROLLER_MORE_ACTIONS"),
+    "more-actions menu opened")
+  assertTrue(Stubs.HasContextEntry("Split Stack"), "split stack entry present")
+  assertTrue(not Stubs.HasContextEntry("Sort Bags"), "no Baganator sort entry")
+
+  -- Y is hidden while holding an item.
+  Stubs.cursorItem = true
+  assertTrue(not addonTable.Actions.CanOpenMoreActions(backpack), "Y hidden with cursor item")
+  assertEqual(addonTable.Actions.GetSelectLabel(backpack), "Place", "A places while holding")
+  Stubs.cursorItem = false
+
+  Stubs.containerItemInfo[0][1].hasLoot = false
+end
+
+----------------------------------------------------------------------------
+-- Vendor context actions
+----------------------------------------------------------------------------
+
+local function TestVendorContext()
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
+  local item1 = _G.BetterBagsBagBackpackItem1
+
+  MerchantFrame:Show()
+  MerchantFrame.selectedTab = 1
+  Stubs.focusManager:FocusFrame(backpack)
+  SmartNavigation.currentButton = item1
+
+  assertEqual(addonTable.Actions.GetContextLabel(backpack), "Sell", "X sells at a vendor")
+
+  Stubs.repairMode = true
+  assertEqual(addonTable.Actions.GetContextLabel(backpack), "Repair", "X repairs in repair mode")
+  Stubs.repairMode = false
+
+  Stubs.cursorItem = true
+  assertEqual(addonTable.Actions.GetContextLabel(backpack), nil, "no X while holding an item")
+  Stubs.cursorItem = false
+
+  MerchantFrame:Hide()
+end
+
+----------------------------------------------------------------------------
+-- Closing and the radial menu
+----------------------------------------------------------------------------
+
+local function TestCloseAndRadial()
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
+  local bank = Stubs.betterBags.bank
+  local item1 = _G.BetterBagsBagBackpackItem1
+
+  Stubs.focusManager:FocusFrame(backpack)
+  SmartNavigation.currentButton = item1
+
+  assertEqual(addonTable.Actions.CloseHandler(backpack), true, "close handler handled B")
+  assertTrue(not backpack:IsVisible(), "B closed the BetterBags backpack")
+  assertTrue(not bank:IsVisible(), "B closed all BetterBags windows")
+  assertTrue(Stubs.LogContains("FrameControlsManager.FrameHidden|BetterBagsBagBackpack"),
+    "unregistered on hide")
+  assertTrue(Stubs.LogContains("PromptedBindingFooter.HideAndDeactivateBindings"),
+    "footer hidden on hide")
+  assertTrue(not _G.ContainerFrameCombinedBags:IsShown(),
+    "Blizzard combined-bags state mirrored closed")
+
+  -- The radial menu's Bags entry must open BetterBags instead.
+  Stubs.stack = "GamepadRadial.lua:619: in function <GamepadRadial.lua:618>\n"
+  ToggleBackpack_Combined()
+  Stubs.RunNextFrames()
+  assertTrue(backpack:IsVisible(), "radial Bags opened BetterBags")
+  assertTrue(_G.ContainerFrameCombinedBags:IsShown(), "combined state mirrored open")
+
+  -- Calls that came through BetterBags' own path are ignored.
+  Stubs.stack = "`ToggleBackpack' called\n"
+  local togglesBefore = Stubs.betterBags.toggles
+  ToggleBackpack_Combined()
+  assertEqual(Stubs.betterBags.toggles, togglesBefore, "guarded against BetterBags' own calls")
+  Stubs.stack = nil
+end
+
+----------------------------------------------------------------------------
+-- Gamepad UI transitions
+----------------------------------------------------------------------------
+
+local function TestGamepadTransition()
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
+
+  Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunNextFrames()
+  assertTrue(_G.BetterBagsControllerFooter.isShown, "footer visible with gamepad on")
+
+  Stubs.SetGamepadUIEnabled(false)
+  Stubs.DispatchEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+  Stubs.RunNextFrames()
+
+  assertTrue(not _G.BetterBagsControllerFooter.isShown, "footer hidden when leaving the Gamepad UI")
+  assertTrue(Stubs.LogContains("SetOverrideBinding|PAD3"), "X override cleared for keyboard mode")
+
+  Stubs.SetGamepadUIEnabled(true)
+  Stubs.DispatchEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+  Stubs.RunNextFrames()
+  Stubs.focusManager:FocusFrame(backpack)
+
+  assertTrue(_G.BetterBagsControllerFooter.isShown, "footer restored when entering the Gamepad UI")
+end
+
+----------------------------------------------------------------------------
+-- Combat deferral
+----------------------------------------------------------------------------
+
+local function TestCombatDeferral()
+  local bank = Stubs.betterBags.bank
+  bank:Hide() -- registered again below, after combat
+
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
+
+  Stubs.SetInCombat(true)
+
+  backpack:Hide()
+  assertTrue(not Stubs.LogContains("FrameControlsManager.FrameHidden"),
+    "no focus-manager call in combat")
+  bank:Show()
+  assertTrue(not Stubs.LogContains("FrameControlsManager.FrameShown|BetterBagsBagBank"),
+    "no registration in combat")
+
+  Stubs.SetInCombat(false)
+  Stubs.DispatchEvent("PLAYER_REGEN_ENABLED")
+  Stubs.RunNextFrames()
+
+  assertTrue(Stubs.LogContains("FrameControlsManager.FrameHidden|BetterBagsBagBackpack"),
+    "deferred unregister after combat")
+  assertTrue(Stubs.LogContains("FrameControlsManager.FrameShown|BetterBagsBagBank"),
+    "deferred register after combat")
+  bank:Hide()
+end
+
+----------------------------------------------------------------------------
+-- Late windows (Next UI vendor)
+----------------------------------------------------------------------------
+
+local function TestLateWindow()
+  Stubs.ResetLog()
+
+  local vendor = Stubs.MakeWindow("BetterBagsNextVendor")
+  vendor:Show()
+  assertTrue(not addonTable.Frames.GetInfo(vendor), "unknown window ignored before resolution")
+
+  Stubs.RunTimers()
+  Stubs.RunNextFrames()
+
+  local info = addonTable.Frames.GetInfo(vendor)
+  assertTrue(info, "late window resolved by name")
+  assertEqual(info.kind, "panel", "vendor window kind")
+  assertTrue(Stubs.LogContains("FrameControlsManager.FrameShown|BetterBagsNextVendor"),
+    "late window registered")
+  vendor:Hide()
+end
+
+----------------------------------------------------------------------------
+-- Layout refresh after BetterBags re-parents buttons
+----------------------------------------------------------------------------
+
+local function TestLayoutRefresh()
+  Stubs.ResetLog()
+  local backpack = Stubs.betterBags.backpack
+  local item1 = _G.BetterBagsBagBackpackItem1
+  local item2 = _G.BetterBagsBagBackpackItem2
+
+  backpack:Show()
+  Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunNextFrames()
+  SmartNavigation.currentButton = item1
+
+  -- A BetterBags layout pass hides the current button.
+  item1:Hide()
+  addonTable.Frames.RequestRefresh()
+  Stubs.RunNextFrames()
+
+  assertTrue(Stubs.LogContains("SmartNavigation.RefreshButtonGroups|BetterBagsBagBackpack"),
+    "button groups refreshed")
+  assertTrue(Stubs.LogContains("SetTargetButtonForFrame|BetterBagsBagBackpack|BetterBagsBagBackpackItem2"),
+    "retargeted to the next visible item")
+  assertTrue(SmartNavigation.currentButton == item2, "current button moved")
+  item1:Show()
+  backpack:Hide()
+end
+
+----------------------------------------------------------------------------
+-- Slash status command
+----------------------------------------------------------------------------
+
+local function TestStatusCommand()
+  Stubs.ResetLog()
+  Stubs.RunSlashCommand("/bbbc")
+  assertTrue(Stubs.LogContains("BetterBags windows known"), "status command prints a report")
+end
+
+----------------------------------------------------------------------------
+
+local tests = {
+  TestLogin,
+  TestBackpackOpenAndFocus,
+  TestContextAndMoreActions,
+  TestVendorContext,
+  TestCloseAndRadial,
+  TestGamepadTransition,
+  TestCombatDeferral,
+  TestLateWindow,
+  TestLayoutRefresh,
+  TestStatusCommand,
+}
+
+for _, test in ipairs(tests) do
+  test()
+end
+
+print = realPrint
+print("all BetterBags Controller stub tests passed")

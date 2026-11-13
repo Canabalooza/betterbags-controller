@@ -1,8 +1,8 @@
 local _, addonTable = ...
 
--- English fallbacks; Locales.Get prefers Blizzard/Baganator translations.
+-- English fallbacks; Locales.Get prefers Blizzard translations.
 local L = {
-  ADDON_NAME = "Baganator Controller",
+  ADDON_NAME = "BetterBags Controller",
   SELECT = "Select",
   PLACE = "Place",
   CLOSE = "Close",
@@ -16,21 +16,15 @@ local L = {
   REPAIR = "Repair",
   MOVE = "Move",
   SPLIT_STACK = "Split Stack",
-  SORT = "Clean Up Bags",
-  BAG_SLOTS = "Bag Slots",
-  ALL_CHARACTERS = "All Characters",
-  CURRENCIES = "Currencies",
-  CUSTOMISE = "Customise Baganator",
-  BANK = "Bank",
-  STATUS_HEADER = "Baganator Controller status",
+  STATUS_HEADER = "BetterBags Controller status",
   STATUS_GAMEPAD_API = "Gamepad UI API available",
   STATUS_GAMEPAD_ENABLED = "Gamepad UI enabled",
   STATUS_RESTRICTED = "Combat restriction active",
-  STATUS_FRAMES = "Baganator frames known",
+  STATUS_FRAMES = "BetterBags windows known",
   STATUS_TRACKED = "Registered with the gamepad focus manager",
   STATUS_FOCUSED = "Focused frame",
   STATUS_NONE = "none",
-  REQUIRES_FOREVER = "Baganator Controller only does anything on World of Warcraft: Forever with the Gamepad UI enabled.",
+  REQUIRES_FOREVER = "BetterBags Controller only does anything on World of Warcraft: Forever with the Gamepad UI enabled.",
 }
 
 addonTable.Locales = L
