@@ -29,12 +29,16 @@ local function IsOrphanedBlizzardFrame(frame)
 end
 
 local function OnFocusManagerFrameShown(manager, frame)
-  if not Core.CanTouchGamepadUI() then
-    return
-  end
-  if IsOrphanedBlizzardFrame(frame) and Core.IsTracked(frame) then
-    manager:FrameHidden(frame)
-  end
+  -- The focus manager can be driven from Blizzard's secure snippets; defer
+  -- so nothing this hook does counts as taint inside that environment.
+  C_Timer.After(0, function()
+    if not Core.CanTouchGamepadUI() then
+      return
+    end
+    if IsOrphanedBlizzardFrame(frame) and Core.IsTracked(frame) then
+      manager:FrameHidden(frame)
+    end
+  end)
 end
 
 ----------------------------------------------------------------------------

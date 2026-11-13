@@ -147,18 +147,29 @@ end
 
 ----------------------------------------------------------------------------
 -- Callbacks Blizzard's gamepad systems invoke on registered frames
+--
+-- Blizzard may call these from inside its secure gamepad-navigation
+-- snippets, where anything the addon does on the spot is treated as taint
+-- and blocks the action. Keep each callback a pure trampoline and run the
+-- actual work one frame later, outside the restricted environment.
 ----------------------------------------------------------------------------
 
 local function OnFocusGamepad(frame)
-  Core.TriggerEvent(Events.FrameFocused, frame)
+  C_Timer.After(0, function()
+    Core.TriggerEvent(Events.FrameFocused, frame)
+  end)
 end
 
 local function OnUnfocusGamepad(frame)
-  Core.TriggerEvent(Events.FrameUnfocused, frame)
+  C_Timer.After(0, function()
+    Core.TriggerEvent(Events.FrameUnfocused, frame)
+  end)
 end
 
 local function OnSmartNavSelect(frame)
-  addonTable.Legend.RequestRefresh(frame)
+  C_Timer.After(0, function()
+    addonTable.Legend.RequestRefresh(frame)
+  end)
 end
 
 local function Setup(frame, kind)
@@ -176,9 +187,11 @@ local function Setup(frame, kind)
   frame.SmartNavigationCloseHandler = addonTable.Actions.CloseHandler
   frame.SmartNavigationOnSelect = OnSmartNavSelect
   frame.smartNavPanelInfoAddedCallback = function()
-    if Core.CanTouchGamepadUI() then
-      ApplyTarget(frame)
-    end
+    C_Timer.After(0, function()
+      if Core.CanTouchGamepadUI() then
+        ApplyTarget(frame)
+      end
+    end)
   end
 
   if frame:IsVisible() then

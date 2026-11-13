@@ -74,6 +74,7 @@ end
 
 local function TestLogin()
   Stubs.DispatchEvent("PLAYER_LOGIN")
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
 
   assertTrue(addonTable.Core.IsInitialized(), "expected initialization with BetterBags loaded")
@@ -98,6 +99,7 @@ local function TestBackpackOpenAndFocus()
 
   backpack:Show()
   Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
 
   assertTrue(Stubs.LogContains("FrameControlsManager.FrameShown|BetterBagsBagBackpack"),
@@ -139,6 +141,7 @@ local function TestContextAndMoreActions()
   assertEqual(addonTable.Actions.GetContextLabel(backpack), "Open", "X opens a bag with loot")
 
   _G.BetterBagsController_InputButton:Click("Context")
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
   assertTrue(Stubs.LogContains("BetterBagsBagBackpackItem1:Click|RightButton"),
     "X performs the context action")
@@ -146,6 +149,7 @@ local function TestContextAndMoreActions()
   -- Y opens the more-actions menu with Split Stack on a stack.
   assertTrue(addonTable.Actions.CanOpenMoreActions(backpack), "Y available on the backpack")
   _G.BetterBagsController_InputButton:Click("More")
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
   assertTrue(Stubs.LogContains("Menu.SetTag|MENU_BETTERBAGS_CONTROLLER_MORE_ACTIONS"),
     "more-actions menu opened")
@@ -214,6 +218,7 @@ local function TestCloseAndRadial()
   -- The radial menu's Bags entry must open BetterBags instead.
   Stubs.stack = "GamepadRadial.lua:619: in function <GamepadRadial.lua:618>\n"
   ToggleBackpack_Combined()
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
   assertTrue(backpack:IsVisible(), "radial Bags opened BetterBags")
   assertTrue(_G.ContainerFrameCombinedBags:IsShown(), "combined state mirrored open")
@@ -235,11 +240,13 @@ local function TestGamepadTransition()
   local backpack = Stubs.betterBags.backpack
 
   Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
   assertTrue(_G.BetterBagsControllerFooter.isShown, "footer visible with gamepad on")
 
   Stubs.SetGamepadUIEnabled(false)
   Stubs.DispatchEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
 
   assertTrue(not _G.BetterBagsControllerFooter.isShown, "footer hidden when leaving the Gamepad UI")
@@ -247,8 +254,10 @@ local function TestGamepadTransition()
 
   Stubs.SetGamepadUIEnabled(true)
   Stubs.DispatchEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
   Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunTimers()
 
   assertTrue(_G.BetterBagsControllerFooter.isShown, "footer restored when entering the Gamepad UI")
 end
@@ -275,6 +284,7 @@ local function TestCombatDeferral()
 
   Stubs.SetInCombat(false)
   Stubs.DispatchEvent("PLAYER_REGEN_ENABLED")
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
 
   assertTrue(Stubs.LogContains("FrameControlsManager.FrameHidden|BetterBagsBagBackpack"),
@@ -295,6 +305,7 @@ local function TestLateWindow()
   vendor:Show()
   assertTrue(not addonTable.Frames.GetInfo(vendor), "unknown window ignored before resolution")
 
+  Stubs.RunTimers()
   Stubs.RunTimers()
   Stubs.RunNextFrames()
 
@@ -318,12 +329,14 @@ local function TestLayoutRefresh()
 
   backpack:Show()
   Stubs.focusManager:FocusFrame(backpack)
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
   SmartNavigation.currentButton = item1
 
   -- A BetterBags layout pass hides the current button.
   item1:Hide()
   addonTable.Frames.RequestRefresh()
+  Stubs.RunTimers()
   Stubs.RunNextFrames()
 
   assertTrue(Stubs.LogContains("SmartNavigation.RefreshButtonGroups|BetterBagsBagBackpack"),
